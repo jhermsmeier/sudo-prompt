@@ -409,46 +409,35 @@ function Windows(instance, callback) {
       instance.pathStdout = Node.path.join(instance.path, 'stdout');
       instance.pathStderr = Node.path.join(instance.path, 'stderr');
       instance.pathStatus = Node.path.join(instance.path, 'status');
-      Node.fs.mkdir(instance.path,
-        function(error) {
+
+      var tasks = [
+        function(next) { WindowsWriteElevateScript(instance, next); },
+        function(next) { WindowsWriteExecuteScript(instance, next); },
+        function(next) { WindowsWriteCommandScript(instance, next); },
+        function(next) { WindowsElevate(instance, next); },
+        function(next) { WindowsWaitForStatus(instance, next); },
+        function(next) { WindowsResult(instance, next); }
+      ]
+
+      function onEnd(error, stdout, stderr) {
+        Remove(instance.path, function(errorRemove) {
           if (error) return callback(error);
-          function end(error, stdout, stderr) {
-            Remove(instance.path,
-              function(errorRemove) {
-                if (error) return callback(error);
-                if (errorRemove) return callback(errorRemove);
-                callback(undefined, stdout, stderr);
-              }
-            );
-          }
-          WindowsWriteElevateScript(instance,
-            function(error) {
-              if (error) return end(error);
-              WindowsWriteExecuteScript(instance,
-                function(error) {
-                  if (error) return end(error);
-                  WindowsWriteCommandScript(instance,
-                    function(error) {
-                      if (error) return end(error);
-                      WindowsElevate(instance,
-                        function(error) {
-                          if (error) return end(error);
-                          WindowsWaitForStatus(instance,
-                            function(error) {
-                              if (error) return end(error);
-                              WindowsResult(instance, end);
-                            }
-                          );
-                        }
-                      );
-                    }
-                  );
-                }
-              );
-            }
-          );
-        }
-      );
+          if (errorRemove) return callback(errorRemove);
+          callback(undefined, stdout, stderr);
+        });
+      }
+
+      function runTasks(error) {
+        var task = tasks.shift();
+        if (task == null) return onEnd.apply(null, arguments);
+        task(runTasks);
+      }
+
+      Node.fs.mkdir(instance.path, function(error) {
+        if (error) return callback(error);
+        runTasks();
+      });
+
     }
   );
 }
